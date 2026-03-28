@@ -1,0 +1,7 @@
+pandas
+transformers
+torch
+streamlit
+scikit-learn
+beautifulsoup4
+requests
