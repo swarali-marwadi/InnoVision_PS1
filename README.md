@@ -57,7 +57,6 @@ Our system uses a **Hybrid Architecture** combining a deep-learning transformer 
 * **Frontend:** Streamlit (Visual Dashboards)
 * **NLP:** HuggingFace Transformers (BART-MNLI)
 * **Visuals:** Plotly (Dynamic Gauges & Distribution Charts)
-* **Scraping:** BeautifulSoup4 & Requests
 * **Data Handling:** Pandas, NumPy
 
 ---
