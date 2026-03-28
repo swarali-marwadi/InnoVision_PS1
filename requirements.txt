@@ -3,6 +3,7 @@ transformers
 torch
 streamlit>=1.31.0
 altair<5
+plotly
 scikit-learn
 beautifulsoup4
 requests
