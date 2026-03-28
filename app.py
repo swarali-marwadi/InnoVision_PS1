@@ -1,145 +1,152 @@
+"""
+app.py — Synapse Green-Truth Auditor · Streamlit Frontend
+=========================================================
+"""
+
 import streamlit as st
 import pandas as pd
-import plotly.graph_objects as go
 import requests
 from bs4 import BeautifulSoup
-from models.engine import load_databases, audit_product # Your real engine
+from models.engine import load_databases, audit_product  # Fixed imports for your repo
 
-# --- PAGE CONFIG ---
-st.set_page_config(page_title="Green-Truth Auditor", layout="wide", page_icon="🌿")
+# ─────────────────────────────────────────────────────────────
+# PAGE CONFIG
+# ─────────────────────────────────────────────────────────────
+st.set_page_config(
+    page_title="Synapse · Green-Truth Auditor",
+    page_icon="🌿",
+    layout="wide",
+    initial_sidebar_state="collapsed",
+)
 
-# --- DATA LOADING ---
-bcorp, gots, india = load_databases()
+# ─────────────────────────────────────────────────────────────
+# CSS - SYNAPSE THEME
+# ─────────────────────────────────────────────────────────────
+st.markdown("""
+<style>
+@import url('https://fonts.googleapis.com/css2?family=DM+Serif+Display&family=DM+Sans:ital,wght@0,300;0,400;0,500;0,600;1,300&display=swap');
 
-# --- UI FUNCTIONS ---
-def draw_gauge(score, title="Sustainability Score"):
-    # Convert 0.0-1.0 to 0-100 for the UI
-    display_score = int(score * 100)
-    fig = go.Figure(go.Indicator(
-        mode = "gauge+number",
-        value = display_score,
-        domain = {'x': [0, 1], 'y': [0, 1]},
-        title = {'text': title, 'font': {'size': 18}},
-        gauge = {
-            'axis': {'range': [0, 100]},
-            'bar': {'color': "#2ecc71"},
-            'steps': [
-                {'range': [0, 40], 'color': "#ff4b4b"},
-                {'range': [40, 75], 'color': "#ffa500"},
-                {'range': [75, 100], 'color': "#28a745"}]}))
-    fig.update_layout(height=250, margin=dict(l=10, r=10, t=40, b=10))
-    return fig
+html, body, [data-testid="stApp"], [data-testid="stHeader"], [data-testid="stMain"] {
+    background-color: #F7F6F2 !important;
+    color: #1A1A18 !important;
+}
+
+html, body, p, div, span, label, input, textarea, button {
+    font-family: 'DM Sans', sans-serif !important;
+}
+
+#MainMenu, footer, header { visibility: hidden; }
+.block-container { padding: 2.5rem 3rem 4rem !important; max-width: 1100px !important; }
+
+/* Hero */
+.hero-title {
+    font-family: 'DM Serif Display', serif !important;
+    font-size: 2.4rem; color: #1A1A18 !important;
+    line-height: 1; display: flex; align-items: center; gap: 0.5rem;
+}
+.hero-badge {
+    font-size: 0.65rem; font-weight: 700; letter-spacing: 0.14em;
+    text-transform: uppercase; color: #2D6A4F; background: #E8F4F0;
+    padding: 0.2rem 0.65rem; border-radius: 20px; margin-left: 0.4rem;
+}
+.hero-sub { color: #6B6B63 !important; font-size: 0.95rem; font-weight: 300; margin: 0.4rem 0 2rem; }
+
+/* Score Card */
+.score-card {
+    background: #FFFFFF !important; border: 1.5px solid #E5E3DC;
+    border-radius: 16px; padding: 1.6rem 1.8rem;
+}
+.score-number {
+    font-family: 'DM Serif Display', serif !important;
+    font-size: 3.8rem; line-height: 1; display: block;
+}
+.score-sub {
+    font-size: 0.7rem; font-weight: 700; letter-spacing: 0.11em;
+    text-transform: uppercase; color: #6B6B63; margin-bottom: 0.6rem;
+}
+.verdict-pill {
+    display: inline-block; padding: 0.35rem 1.1rem; border-radius: 50px;
+    font-size: 0.8rem; font-weight: 700; margin-top: 0.6rem; letter-spacing: 0.04em;
+}
+.pill-green { background: #E8F4F0; color: #2D6A4F; }
+.pill-amber { background: #FEF3C7; color: #B45309; }
+.pill-red   { background: #FEE2E2; color: #9B1C1C; }
+
+/* Sentence rows */
+.s-row {
+    background:#FFFFFF !important; border:1.5px solid #E5E3DC;
+    border-left:4px solid #E5E3DC; border-radius:10px; padding:1rem 1.2rem; margin-bottom:.55rem;
+}
+.s-text { font-size:.91rem; color:#1A1A18 !important; line-height:1.55; margin-bottom:.5rem; }
+.v-tag { font-size:.65rem; font-weight:700; letter-spacing:.08em; text-transform:uppercase; padding:.18rem .55rem; border-radius:4px; }
+</style>
+""", unsafe_allow_html=True)
+
+# ─────────────────────────────────────────────────────────────
+# UI HELPERS
+# ─────────────────────────────────────────────────────────────
+VERDICT_META = {
+    "Evidence-Based": {"icon":"📊", "tbg":"#DBEAFE","tfg":"#1E3A5F"},
+    "Backed Claim": {"icon":"✅", "tbg":"#E8F4F0","tfg":"#2D6A4F"},
+    "Vague": {"icon":"❌", "tbg":"#FEE2E2","tfg":"#9B1C1C"},
+    "Uncertain / PR Speak": {"icon":"⚠️", "tbg":"#F3F4F6","tfg":"#4B5563"},
+}
 
 def scrape_url(url):
     try:
         headers = {'User-Agent': 'Mozilla/5.0'}
-        response = requests.get(url, headers=headers, timeout=10)
-        soup = BeautifulSoup(response.content, 'html.parser')
-        title = soup.title.string if soup.title else ""
-        desc = soup.find('meta', attrs={'name': 'description'})
-        desc_text = desc['content'] if desc else ""
-        # Get visible text from body
-        body = soup.find('body').get_text(separator=' ', strip=True)[:2000]
-        return f"{title}. {desc_text}. {body}"
-    except:
-        return None
+        res = requests.get(url, headers=headers, timeout=10)
+        soup = BeautifulSoup(res.content, 'html.parser')
+        return soup.get_text(separator=' ', strip=True)[:2500]
+    except: return None
 
-# --- UI LAYOUT ---
-st.title("🌿 Green-Truth Auditor")
-st.markdown("### The Intent-Aware Sustainability Shopping Assistant")
+# ─────────────────────────────────────────────────────────────
+# DATA LOADING
+# ─────────────────────────────────────────────────────────────
+bcorp, gots, india = load_databases()
 
-col_in1, col_in2 = st.columns([2, 1])
+# ─────────────────────────────────────────────────────────────
+# UI RENDER
+# ─────────────────────────────────────────────────────────────
+st.markdown("""
+<div class="hero-title">
+   🌿 Synapse Auditor <span class="hero-badge">InnoVision</span>
+</div>
+<p class="hero-sub">The Intent-Aware Sustainability Shopping Assistant.</p>
+""", unsafe_allow_html=True)
 
-with col_in1:
-    input_mode = st.tabs(["🔗 URL Analyzer", "📝 Text Description"])
-    with input_mode[0]:
-        url_input = st.text_input("Paste Amazon/Flipkart/Brand URL:", placeholder="https://www.example.com/product")
-    with input_mode[1]:
-        text_input = st.text_area("Paste Product Description:", height=150)
+input_tab = st.tabs(["🔗 URL Analyzer", "📝 Text Description"])
+with input_tab[0]:
+    url_input = st.text_input("Product URL", placeholder="https://example.com/product", label_visibility="collapsed")
+with input_tab[1]:
+    text_input = st.text_area("Product Text", placeholder="Paste description here...", height=150, label_visibility="collapsed")
 
-with col_in2:
-    st.info("💡 *Innovation:* We use RAG-based certification verification to compare brands and find the truly ethical choice.")
+if st.button("Run Audit ›", type="primary"):
+    source = scrape_url(url_input) if url_input else text_input
+    
+    if source:
+        with st.spinner("Analyzing claims..."):
+            report = audit_product(source, bcorp, gots, india)
+            sc = report["final_score"]
+            ov = "Legitimate Claims" if sc > 0.7 else "Uncertain" if sc > 0.4 else "Greenwashing Likely"
+            p_class = "pill-green" if sc > 0.7 else "pill-amber" if sc > 0.4 else "pill-red"
 
-if st.button("🚀 Run Deep Audit"):
-    source_text = ""
-    if url_input:
-        with st.spinner("🕷️ Scraping product metadata..."):
-            source_text = scrape_url(url_input)
-            if not source_text:
-                st.error("Could not scrape URL. Please paste text manually.")
-    else:
-        source_text = text_input
+        # Display Score Card
+        st.markdown(f"""
+        <div class="score-card">
+          <span class="score-sub">Credibility Score</span>
+          <span class="score-number" style="color:#2D6A4F">{int(sc*100)}%</span>
+          <span class="verdict-pill {p_class}">{ov}</span>
+        </div>
+        """, unsafe_allow_html=True)
 
-    if source_text:
-        # --- REAL LOGIC HANDOFF ---
-        with st.spinner("🤖 AI analyzing claims..."):
-            report = audit_product(source_text, bcorp, gots, india)
-        
-        final_score = report['final_score']
-        
-        # --- 1. GAUGE & VERDICT ---
-        c1, c2 = st.columns([1, 2])
-        with c1:
-            st.plotly_chart(draw_gauge(final_score), use_container_width=True)
-        
-        with c2:
-            if final_score < 0.4:
-                st.subheader("🚨 Likely Greenwashing")
-            elif final_score < 0.7:
-                st.subheader("⚖️ Uncertain / Mixed Claims")
-            else:
-                st.subheader("✅ Legitimate Claims")
-            
-            # Show top brand matches if found
-            if report["brands"]:
-                for b in report["brands"]:
-                    status = "Verified" if b['certified'] else "NOT Verified"
-                    st.write(f"**Brand Match:** {b['brand']} — *{status}* ({b['db']})")
-            else:
-                st.write("*No verified brand found in our databases for this product.*")
-
-        st.divider()
-
-        # --- 2. COMPETITOR COMPARISON ---
-        st.subheader("⚖️ How it Compares (Real Data)")
-        comp_col1, comp_col2, comp_col3 = st.columns(3)
-        
-        with comp_col1:
-            st.metric("Analyzed Brand", f"{int(final_score*100)}/100", "Current Analysis")
-            
-        with comp_col2:
-            # Pulling a top performer from your B-Corp CSV as a recommendation
-            top_brand = "Patagonia" # Example topper from your CSV
-            st.metric(top_brand, "92/100", "B-Corp Verified")
-            
-        with comp_col3:
-            if final_score < 0.75:
-                st.success(f"🌟 *Ethical Alternative:* {top_brand}")
-                st.caption("This brand has verified supply chains and 3rd party audits.")
-            else:
-                st.balloons()
-                st.write("🌟 **Top Tier Brand!** This product matches the transparency of leaders like Patagonia.")
-
-        # --- 3. DETAILED AUDIT TRAIL ---
-        st.subheader("🕵️ Detailed Audit Trail")
+        # Detailed Audit
+        st.markdown("### 🕵️ Audit Trail")
         for r in report["sentences"]:
-            if r['score'] < 0.4: # Highlight the "Fluff"
-                st.markdown(f"""
-                <div style="background:#fff3cd; padding:10px; border-left:5px solid #ff4b4b; margin-bottom:5px;">
-                <b>Flagged Segment:</b> "{r['sentence']}" <br>
-                <i>Critique: Vague marketing fluff detected with low evidence.</i>
-                </div>
-                """, unsafe_allow_html=True)
-            elif r['score'] > 0.8: # Highlight the "Facts"
-                st.markdown(f"""
-                <div style="background:#d4edda; padding:10px; border-left:5px solid #28a745; margin-bottom:5px;">
-                <b>Verified Fact:</b> "{r['sentence']}" <br>
-                <i>AI Status: Specific and verifiable environmental evidence found.</i>
-                </div>
-                """, unsafe_allow_html=True)
-
-# --- SIDEBAR FOOTER ---
-st.sidebar.markdown("---")
-st.sidebar.write(f"✅ *B-Corp DB:* {len(bcorp)} brands")
-st.sidebar.write(f"✅ *GOTS DB:* {len(gots)} brands")
-st.sidebar.write("🤖 *Model:* BART-MNLI (87.5% Acc)")
+            m = VERDICT_META.get(r["verdict"], VERDICT_META["Uncertain / PR Speak"])
+            st.markdown(f"""
+            <div class="s-row">
+              <div class="s-text">{r['sentence']}</div>
+              <span class="v-tag" style="background:{m['tbg']};color:{m['tfg']}">{m['icon']} {r['verdict']}</span>
+            </div>
+            """, unsafe_allow_html=True)
